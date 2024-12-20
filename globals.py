@@ -4,6 +4,7 @@ from tkinter import *
 import threading
 from dataclasses import dataclass
 from typing import Dict
+from operator import attrgetter
 
 @dataclass
 class Customer:
@@ -15,28 +16,44 @@ class SharedState:
     def __init__(self):
         self.custready = 0
         self.access = 1
-        self.noofseats = 4  # Default value, will be updated from environment
+        self.noofseats = 4
         self.total_seats = self.noofseats
         self.come = 0
         self._lock = threading.Lock()
-        self.customer_count = 0  # To generate unique customer IDs
-        self.waiting_customers: Dict[int, Customer] = {}  # position -> Customer
+        self.waiting_customers: Dict[int, Customer] = {}
 
     def add_customer(self, position: int) -> Customer:
         with self._lock:
-            self.customer_count += 1
+            occupied_ids = set(cust.id for cust in self.waiting_customers.values())
+            new_id = 1
+            while new_id in occupied_ids:
+                new_id += 1
+                
             customer = Customer(
-                id=self.customer_count,
+                id=new_id,
                 arrival_time=time.time(),
                 position=position
             )
             self.waiting_customers[position] = customer
             return customer
 
+    def get_next_customer(self) -> tuple[int, Customer]:
+        with self._lock:
+            if not self.waiting_customers:
+                return -1, None
+            longest_waiting_pos = min(
+                self.waiting_customers.items(),
+                key=lambda x: x[1].arrival_time
+            )
+            return longest_waiting_pos
+
     def remove_customer(self, position: int) -> None:
         with self._lock:
             if position in self.waiting_customers:
                 del self.waiting_customers[position]
+                sorted_positions = sorted(self.waiting_customers.keys())
+                for i, pos in enumerate(sorted_positions, 1):
+                    self.waiting_customers[pos].id = i
 
     def change_custready(self, value):
         with self._lock:
@@ -56,6 +73,11 @@ def signal1(s):
         new_value = state.change_custready(s)
         print(f"Signal1: custready changed to {new_value}")
         state.custready = state.custready + 1
+        gui_queue.put({
+            'action': 'update_semaphore',
+            'semaphore_type': 'customer',
+            'value': state.custready
+        })
     except Exception as e:
         print(f"Error in signal1: {str(e)}")
         gui_queue.put({'action': 'show_error', 'message': 'An error occurred in signal1.'})
@@ -78,6 +100,11 @@ def wait1(s):
             time.sleep(1)
             gui_queue.put({'action': 'update_barber', 'state': 'ready'})
         state.custready = state.custready - 1
+        gui_queue.put({
+            'action': 'update_semaphore',
+            'semaphore_type': 'customer',
+            'value': state.custready
+        })
     except Exception as e:
         print(f"Error in wait1: {str(e)}")
         gui_queue.put({'action': 'show_error', 'message': 'An error occurred in wait1.'})
@@ -87,6 +114,11 @@ def signal2(s):
         new_value = state.change_access(s)
         print(f"Signal2: access changed to {new_value}")
         state.access = state.access + 1
+        gui_queue.put({
+            'action': 'update_semaphore',
+            'semaphore_type': 'mutex',
+            'value': state.access
+        })
     except Exception as e:
         print(f"Error in signal2: {str(e)}")
         gui_queue.put({'action': 'show_error', 'message': 'An error occurred in signal2.'})
@@ -98,6 +130,11 @@ def wait2(s):
         while(state.access <= 0):
             pass
         state.access = state.access - 1
+        gui_queue.put({
+            'action': 'update_semaphore',
+            'semaphore_type': 'mutex',
+            'value': state.access
+        })
     except Exception as e:
         print(f"Error in wait2: {str(e)}")
         gui_queue.put({'action': 'show_error', 'message': 'An error occurred in wait2.'})

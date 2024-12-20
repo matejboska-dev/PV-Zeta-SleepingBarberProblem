@@ -1,3 +1,4 @@
+# gui.py
 import math
 from tkinter import *
 from PIL import ImageTk, Image
@@ -6,6 +7,10 @@ import time
 from globals import gui_queue, state
 
 class GUI:
+    """
+    GUI class for the Sleeping Barber Problem visualization.
+    Handles all visual elements including barber, chairs, and semaphore displays.
+    """
     def __init__(self, root):
         self.root = root
         self.images = {}  # Store all PhotoImage objects
@@ -15,17 +20,99 @@ class GUI:
         self.vertical_spacing = 50
         self.info_tags = []  # Store tags for customer info text
         self.setup_gui()
+        self.setup_semaphore_display()  # Add semaphore display
         self.root.after(100, self.process_queue)
-        self.root.after(1000, self.update_waiting_times)  # Update times every second
+        self.root.after(1000, self.update_waiting_times)
+
+    def calculate_chairs_per_row(self):
+        """Modified to always use 4 chairs per row for better space utilization"""
+        return 4  # Now always returns 4 for consistent layout
 
     def calculate_room_dimensions(self):
+        """Calculate room dimensions with optimized space usage"""
         chairs_per_row = self.calculate_chairs_per_row()
         num_rows = math.ceil(state.total_seats / chairs_per_row)
         
+        # Calculate base width and height
         width = (chairs_per_row * (self.chair_width + self.chair_spacing)) + self.chair_spacing * 3
-        height = (num_rows * (self.chair_height + self.vertical_spacing)) + self.vertical_spacing * 2 + 300  # Added extra height
+        height = (num_rows * (self.chair_height + self.vertical_spacing)) + self.vertical_spacing * 2 + 200
         
-        return max(590, width), max(530, height)
+        # Cap the maximum dimensions
+        max_width = 900  # Maximum width to prevent window from getting too wide
+        max_height = 700  # Maximum height to prevent window from getting too tall
+        
+        return min(max_width, max(590, width)), min(max_height, max(530, height))
+
+    def setup_semaphore_display(self):
+        """Setup the display boards for semaphore states with adjusted positioning"""
+        waiting_room_width, waiting_room_height = self.calculate_room_dimensions()
+        
+        # Move semaphores lower by increasing base_y
+        base_x = 520 + waiting_room_width/2 + 150
+        base_y = waiting_room_height + 200 # Increased from 100 to move lower
+        board_width = 160
+        board_height = 70
+        board_spacing = 20
+        
+        fnt = ('Arial', 10, 'bold')
+        title_fnt = ('Times', 16, 'bold')
+        
+        # Add a title for the semaphore display section
+        self.c.create_text(base_x + board_width * 1.5, base_y - 40,
+                          text="SEMAPHORE STATES",
+                          font=title_fnt,
+                          fill='black')
+        
+          # Customer Semaphore Display
+        self.c.create_rectangle(base_x, base_y, 
+                          base_x + board_width, base_y + board_height, 
+                          fill='lightblue', outline='darkblue', width=2)
+        self.c.create_text(base_x + board_width/2, base_y + 15, 
+                      text="Customer Semaphore", font=fnt)
+        self.customer_sem_text = self.c.create_text(base_x + board_width/2, base_y + 45,
+                                              text="Value: 0", font=fnt)
+        
+        # Barber Semaphore Display
+        x2 = base_x + board_width + board_spacing
+        self.c.create_rectangle(x2, base_y,
+                              x2 + board_width, base_y + board_height,
+                              fill='lightgreen', outline='darkgreen', width=2)
+        self.c.create_text(x2 + board_width/2, base_y + 15,
+                          text="Barber Semaphore", font=fnt)
+        self.barber_sem_text = self.c.create_text(x2 + board_width/2, base_y + 45,
+                                                text="Value: 0", font=fnt)
+        
+        # Mutex Display with explanation tooltip
+        """
+        When Mutex = 1 (Unlocked):
+
+        The waiting room is free to be accessed
+        A new customer can enter
+        The barber can take a customer
+        Think of it like an "open" sign on a door
+
+        When Mutex = 0 (Locked):
+
+        Someone (either barber or customer) is currently accessing the waiting room
+        Other threads must wait
+        
+        Prevents things like:
+
+        Two customers trying to take the same chair
+        Barber trying to take a customer while that customer is still getting seated
+        Multiple operations happening in the waiting room at once
+
+
+        Think of it like an "occupied" sign on a door
+        """
+        x3 = x2 + board_width + board_spacing
+        self.c.create_rectangle(x3, base_y,
+                              x3 + board_width, base_y + board_height,
+                              fill='pink', outline='darkred', width=2)
+        self.c.create_text(x3 + board_width/2, base_y + 15,
+                          text="Mutex", font=fnt)
+        self.mutex_text = self.c.create_text(x3 + board_width/2, base_y + 45,
+                                           text="Value: 1", font=fnt)
 
     def load_images(self):
         image_files = {
@@ -53,8 +140,8 @@ class GUI:
         self.root.title("Sleeping Barber Problem Solution")
         
         waiting_room_width, waiting_room_height = self.calculate_room_dimensions()
-        window_width = waiting_room_width + 1000
-        window_height = waiting_room_height + 200
+        window_width = waiting_room_width + 800
+        window_height = waiting_room_height + 250
         
         self.root.geometry(f"{window_width}x{window_height}")
         self.c = Canvas(self.root, bg='cyan', height=window_height, width=window_width)
@@ -88,14 +175,6 @@ class GUI:
         self.update_barber_state('sleeping')
         self.update_chairs(0)
 
-    def calculate_chairs_per_row(self):
-        if state.total_seats <= 3:
-            return state.total_seats
-        elif state.total_seats <= 6:
-            return 3
-        else:
-            return 4
-
     def button_click(self):
         state.come = 1
         print("Button clicked, come =", state.come)
@@ -117,10 +196,8 @@ class GUI:
         return f"{minutes:02d}:{seconds:02d}"
 
     def update_waiting_times(self):
-        """Update the waiting time display for all customers"""
         current_time = time.time()
         
-        # Update each customer's waiting time
         for tag in self.info_tags:
             self.c.delete(tag)
         self.info_tags.clear()
@@ -130,15 +207,13 @@ class GUI:
             formatted_time = self.format_waiting_time(waiting_time)
             info_text = f"#{customer.id}\n{formatted_time}"
             
-            # Calculate position for the text (above the chair)
             chairs_per_row = self.calculate_chairs_per_row()
             row = position // chairs_per_row
             col = position % chairs_per_row
             
             x = 480 + (col * (self.chair_width + self.chair_spacing)) + self.chair_width/2
-            y = 250 + (row * (self.chair_height + self.vertical_spacing)) - 30  # Updated y-position
+            y = 250 + (row * (self.chair_height + self.vertical_spacing)) - 30
             
-            # Create text with shadow for better visibility
             shadow_tag = f"info_shadow_{position}"
             text_tag = f"info_text_{position}"
             
@@ -157,11 +232,10 @@ class GUI:
         chairs_per_row = self.calculate_chairs_per_row()
         
         start_x = 480
-        start_y = 250  # Updated starting y-position
+        start_y = 250
         
         self.c.delete('chair')
         
-        # Clear old customer info
         for tag in self.info_tags:
             self.c.delete(tag)
         self.info_tags.clear()
@@ -174,22 +248,33 @@ class GUI:
             y = start_y + (row * (self.chair_height + self.vertical_spacing))
             
             if i < occupied_count:
-                # Add a new customer if not already tracked
                 if i not in state.waiting_customers:
                     state.add_customer(i)
                 img = self.images['occupied_chair']
             else:
-                # Remove customer if chair becomes empty
                 state.remove_customer(i)
                 img = self.images['empty_chair']
                 
             self.c.create_image(x, y, anchor=NW, image=img, tags='chair')
+
+    def update_semaphore_display(self, sem_type, value):
+        """Update the display of a specific semaphore"""
+        if sem_type == 'customer':
+            self.c.itemconfig(self.customer_sem_text,
+                            text=f"Value: {value}")
+        elif sem_type == 'barber':
+            self.c.itemconfig(self.barber_sem_text,
+                            text=f"Value: {value}")
+        elif sem_type == 'mutex':
+            self.c.itemconfig(self.mutex_text,
+                            text=f"Value: {value}")
 
     def process_queue(self):
         try:
             while True:
                 message = gui_queue.get_nowait()
                 action = message.get('action')
+                
                 if action == 'update_barber':
                     self.update_barber_state(message['state'])
                 elif action == 'update_chairs':
@@ -197,18 +282,29 @@ class GUI:
                 elif action == 'show_entering':
                     waiting_room_width, _ = self.calculate_room_dimensions()
                     entry_x = 520 + waiting_room_width + 10
-                    self.c.create_image(entry_x, 250, anchor=NW, image=self.images['entering'], tags='temp')
+                    self.c.create_image(entry_x, 250, anchor=NW,
+                                      image=self.images['entering'],
+                                      tags='temp')
                     self.root.after(1000, lambda: self.c.delete('temp'))
                 elif action == 'show_nospace':
                     waiting_room_width, _ = self.calculate_room_dimensions()
                     entry_x = 520 + waiting_room_width + 10
-                    self.c.create_image(entry_x, 250, anchor=NW, image=self.images['nospace'], tags='temp')
+                    self.c.create_image(entry_x, 250, anchor=NW,
+                                      image=self.images['nospace'],
+                                      tags='temp')
                     self.root.after(500, lambda: self.c.delete('temp'))
                 elif action == 'show_leaving':
                     waiting_room_width, _ = self.calculate_room_dimensions()
                     entry_x = 520 + waiting_room_width + 10
-                    self.c.create_image(entry_x, 250, anchor=NW, image=self.images['leaving'], tags='temp')
+                    self.c.create_image(entry_x, 250, anchor=NW,
+                                      image=self.images['leaving'],
+                                      tags='temp')
                     self.root.after(1000, lambda: self.c.delete('temp'))
+                elif action == 'update_semaphore':
+                    self.update_semaphore_display(
+                        message['semaphore_type'],
+                        message['value']
+                    )
         except queue.Empty:
             pass
         self.root.after(100, self.process_queue)
